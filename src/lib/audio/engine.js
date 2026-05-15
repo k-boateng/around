@@ -1,6 +1,9 @@
 // Main-thread audio engine.
 // Owns the AudioContext, loads the AudioWorklet and HRTF dataset,
 // and exposes a simple API for the UI to call.
+//
+// Uses MediaElementAudioSourceNode so full tracks stream natively —
+// no full decode into RAM, seeking and duration work out of the box.
 
 import { HRTFLoader } from './hrtf-loader.js';
 
@@ -11,35 +14,62 @@ export class SpatialEngine {
   constructor() {
     this._ctx       = null;
     this._node      = null;   // AudioWorkletNode
-    this._source    = null;   // AudioBufferSourceNode | MediaElementAudioSourceNode
+    this._source    = null;   // MediaElementAudioSourceNode (created once)
     this._gainNode  = null;
+    this._analyser  = null;
+    this._ampBuf    = null;
+    this._audioEl   = null;   // <audio> element — the actual playback engine
     this._loader    = new HRTFLoader();
 
     this._azimuth   = 0;
     this._elevation = 0;
     this._distance  = 1;
 
-    this._ready     = false;
-    this._playing   = false;
+    this._trackName   = '';
+    this._objectUrl   = null; // revoke previous blob URL on track change
+    this._ready       = false;
   }
 
-  // Must be called from a user-gesture handler to satisfy
+  // Must be called from a user-gesture handler (click/touch) to satisfy
   // browser autoplay policy. Safe to call more than once.
   async init() {
     if (this._ready) return;
 
     this._ctx = new AudioContext({ sampleRate: 44100 });
 
+    // One <audio> element lives for the lifetime of the engine.
+    // Changing tracks = changing audioEl.src, not creating new nodes.
+    this._audioEl      = new Audio();
+    this._audioEl.loop = true;
+
+    // Wrap in Web Audio graph (created once, reused for all tracks).
+    this._source = this._ctx.createMediaElementSource(this._audioEl);
+
+    // Force the gain node to mono so the spatial worklet always gets
+    // a single channel regardless of whether the track is stereo or mono.
+    this._gainNode = this._ctx.createGain();
+    this._gainNode.channelCount          = 1;
+    this._gainNode.channelCountMode      = 'explicit';
+    this._gainNode.channelInterpretation = 'speakers';
+
+    // Analyser taps the pre-spatialization signal for amplitude reads.
+    this._analyser        = this._ctx.createAnalyser();
+    this._analyser.fftSize = 256;
+    this._ampBuf          = new Uint8Array(this._analyser.fftSize);
+
     // Register the worklet processor.
     await this._ctx.audioWorklet.addModule(WORKLET_URL);
 
-    // Build the graph: source → gain → spatial worklet → destination
     this._node = new AudioWorkletNode(this._ctx, 'spatial-processor', {
-      numberOfInputs:  1,
-      numberOfOutputs: 1,
+      numberOfInputs:     1,
+      numberOfOutputs:    1,
       outputChannelCount: [2],
     });
-    this._gainNode = this._ctx.createGain();
+
+    // Graph: <audio> → gain (mono) → analyser
+    //                             → spatial worklet → destination
+    this._source.connect(this._gainNode);
+    this._gainNode.connect(this._analyser);
     this._gainNode.connect(this._node);
     this._node.connect(this._ctx.destination);
 
@@ -52,77 +82,74 @@ export class SpatialEngine {
     this._ready = true;
   }
 
+  // Audio source loading
 
-  // Audio source loading section
-
-  // Load one of the bundled demo files from static/audio/.
+  // Load one of the bundled demo tracks from static/audio/.
   async loadDemo(filename) {
     await this._ensureReady();
-    await this._loadFromUrl(`/audio/${filename}`);
+    const name = filename.replace(/\.[^.]+$/, ''); // strip extension
+    await this._loadFromUrl(`/audio/${filename}`, name);
   }
 
-  // Load a File object from a user's <input type="file">.
+  // Load a File from a user's <input type="file">.
   async loadFile(file) {
     await this._ensureReady();
-    const url = URL.createObjectURL(file);
-    await this._loadFromUrl(url);
+    this._revokeObjectUrl();
+    this._objectUrl = URL.createObjectURL(file);
+    const name = file.name.replace(/\.[^.]+$/, '');
+    await this._loadFromUrl(this._objectUrl, name);
   }
 
-  // Fetch a mono audio file from an arbitrary URL and decode it.
+  // Fetch a track from an arbitrary URL (must allow CORS).
   async loadUrl(url) {
     await this._ensureReady();
-    await this._loadFromUrl(url);
+    const name = url.split('/').pop().replace(/\.[^.]+$/, '') || url;
+    await this._loadFromUrl(url, name);
   }
 
-  async _loadFromUrl(url) {
-    this._stop();
+  async _loadFromUrl(url, trackName = '') {
+    // External URLs need crossOrigin for Web Audio to process them.
+    const isExternal = /^https?:\/\//.test(url);
+    this._audioEl.crossOrigin = isExternal ? 'anonymous' : '';
 
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`Audio fetch failed: ${url}`);
-    const buf     = await res.arrayBuffer();
-    const decoded = await this._ctx.decodeAudioData(buf);
+    this._audioEl.pause();
+    this._audioEl.src = url;
+    this._trackName   = trackName;
 
-    // Downmix to mono by averaging channels if needed.
-    const mono = toMono(decoded, this._ctx);
-
-    const sourceNode = this._ctx.createBufferSource();
-    sourceNode.buffer = mono;
-    sourceNode.loop   = true;
-    sourceNode.connect(this._gainNode);
-    this._source = sourceNode;
+    // Wait until the browser has enough data to report duration.
+    await new Promise((resolve, reject) => {
+      const onReady = () => { cleanup(); resolve(); };
+      const onError = () => { cleanup(); reject(new Error(`Failed to load: ${url}`)); };
+      const cleanup = () => {
+        this._audioEl.removeEventListener('canplay', onReady);
+        this._audioEl.removeEventListener('error',   onError);
+      };
+      this._audioEl.addEventListener('canplay', onReady,  { once: true });
+      this._audioEl.addEventListener('error',   onError,  { once: true });
+    });
   }
 
   // Playback control
 
-  play() {
-    if (!this._ready || !this._source || this._playing) return;
-    this._source.start(0);
-    this._playing = true;
-    if (this._ctx.state === 'suspended') this._ctx.resume();
+  async play() {
+    if (!this._ready || !this._audioEl.src) return;
+    await this._ctx.resume();
+    await this._audioEl.play();
   }
 
   pause() {
-    if (!this._playing) return;
-    this._ctx.suspend();
-    this._playing = false;
+    this._audioEl?.pause();
   }
 
-  resume() {
-    if (this._playing) return;
-    this._ctx.resume();
-    this._playing = true;
+  seek(seconds) {
+    if (this._audioEl) this._audioEl.currentTime = seconds;
   }
 
-  _stop() {
-    if (this._source) {
-      try { this._source.stop(); } catch (_) {}
-      this._source.disconnect();
-      this._source = null;
-    }
-    this._playing = false;
+  setLoop(loop) {
+    if (this._audioEl) this._audioEl.loop = loop;
   }
 
-  // Spatial parameters — call these whenever gyroscope / mouse changes
+  // Spatial parameters — call on every gyroscope / mouse update
 
   setAzimuth(deg) {
     this._azimuth = deg;
@@ -142,53 +169,59 @@ export class SpatialEngine {
 
   setDistance(meters) {
     this._distance = meters;
-    if (!this._node) return;
-    this._node.port.postMessage({ type: 'distance', value: meters });
+    this._node?.port.postMessage({ type: 'distance', value: meters });
   }
 
   setWetMix(amount) {
-    if (!this._node) return;
-    this._node.port.postMessage({ type: 'wetMix', value: amount });
+    this._node?.port.postMessage({ type: 'wetMix', value: amount });
   }
 
   setGain(value) {
-    if (this._gainNode) this._gainNode.gain.setTargetAtTime(value, this._ctx.currentTime, 0.01);
+    if (this._gainNode) {
+      this._gainNode.gain.setTargetAtTime(value, this._ctx.currentTime, 0.01);
+    }
   }
+
+  // Amplitude — call once per animation frame
+
+  getAmplitude() {
+    if (!this._analyser) return 0;
+    this._analyser.getByteTimeDomainData(this._ampBuf);
+    let sum = 0;
+    for (let i = 0; i < this._ampBuf.length; i++) {
+      const s = (this._ampBuf[i] - 128) / 128;
+      sum += s * s;
+    }
+    return Math.sqrt(sum / this._ampBuf.length);
+  }
+
+  // Getters
+
+  get isReady()    { return this._ready; }
+  get isPlaying()  { return this._audioEl ? !this._audioEl.paused : false; }
+  get currentTime(){ return this._audioEl?.currentTime ?? 0; }
+  get duration()   { return this._audioEl?.duration    ?? 0; }
+  get trackName()  { return this._trackName; }
+  get azimuth()    { return this._azimuth; }
+  get elevation()  { return this._elevation; }
+  get distance()   { return this._distance; }
 
   // Internal
 
   _sendIR(azimuth, elevation) {
     if (!this._node || !this._loader.loaded) return;
     const { left, right, length } = this._loader.interpolateForWorklet(azimuth, elevation);
-    // Transfer ownership of ArrayBuffers (zero-copy).
     this._node.port.postMessage({ type: 'ir', left, right, length }, [left, right]);
+  }
+
+  _revokeObjectUrl() {
+    if (this._objectUrl) {
+      URL.revokeObjectURL(this._objectUrl);
+      this._objectUrl = null;
+    }
   }
 
   async _ensureReady() {
     if (!this._ready) await this.init();
   }
-
-  get isReady()   { return this._ready; }
-  get isPlaying() { return this._playing; }
-  get azimuth()   { return this._azimuth; }
-  get elevation() { return this._elevation; }
-  get distance()  { return this._distance; }
-}
-
-// Helper: downmix AudioBuffer to mono
-
-function toMono(audioBuffer, ctx) {
-  if (audioBuffer.numberOfChannels === 1) return audioBuffer;
-
-  const mono   = ctx.createBuffer(1, audioBuffer.length, audioBuffer.sampleRate);
-  const output = mono.getChannelData(0);
-  const nCh    = audioBuffer.numberOfChannels;
-
-  for (let ch = 0; ch < nCh; ch++) {
-    const channel = audioBuffer.getChannelData(ch);
-    for (let i = 0; i < audioBuffer.length; i++) output[i] += channel[i];
-  }
-  for (let i = 0; i < output.length; i++) output[i] /= nCh;
-
-  return mono;
 }
