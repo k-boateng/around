@@ -3,31 +3,35 @@
 // Dataset layout: static/hrtf/elev{e}/H{e}e{az}a.wav
 // Right-side symmetry: only 0–180° stored; az > 180° reconstructed by mirroring + L/R swap.
 
-const ELEVATIONS = [
-  { elev: -40, step: 6 },
-  { elev: -30, step: 6 },
-  { elev: -20, step: 5 },
-  { elev: -10, step: 5 },
-  { elev:   0, step: 5 },
-  { elev:  10, step: 5 },
-  { elev:  20, step: 5 },
-  { elev:  30, step: 6 },
-  { elev:  40, step: 6 },
-  { elev:  50, step: 8 },
-  { elev:  60, step: 10 },
-  { elev:  70, step: 15 },
-  { elev:  80, step: 30 },
-  { elev:  90, step: 360 }, // single measurement at zenith
-];
+// Exact azimuth lists per elevation, matching actual KEMAR dataset filenames.
+// elev±40 use non-uniform ~6.43° spacing (29 files each).
+// elev50 ends at 176°, not 180° (23 files).
+// All other elevations use uniform steps.
+const AZ_LISTS = new Map([
+  [ -40, [0,6,13,19,26,32,39,45,51,58,64,71,77,84,90,96,103,109,116,122,129,135,141,148,154,161,167,174,180] ],
+  [ -30, range(0, 180, 6)  ],
+  [ -20, range(0, 180, 5)  ],
+  [ -10, range(0, 180, 5)  ],
+  [   0, range(0, 180, 5)  ],
+  [  10, range(0, 180, 5)  ],
+  [  20, range(0, 180, 5)  ],
+  [  30, range(0, 180, 6)  ],
+  [  40, [0,6,13,19,26,32,39,45,51,58,64,71,77,84,90,96,103,109,116,122,129,135,141,148,154,161,167,174,180] ],
+  [  50, range(0, 176, 8)  ],  // last file is H50e176a.wav
+  [  60, range(0, 180, 10) ],
+  [  70, range(0, 180, 15) ],
+  [  80, range(0, 180, 30) ],
+  [  90, [0]               ],  // single measurement at zenith
+]);
 
-// Pre-build azimuth lists once per elevation (0–180°).
-const AZ_LISTS = new Map(
-  ELEVATIONS.map(({ elev, step }) => {
-    const azs = [];
-    for (let az = 0; az <= 180; az += step) azs.push(az);
-    return [elev, azs];
-  })
-);
+function range(start, end, step) {
+  const out = [];
+  for (let v = start; v <= end; v += step) out.push(v);
+  return out;
+}
+
+// Ordered elevation list derived from AZ_LISTS (used for bracket search).
+const ELEVATIONS = [...AZ_LISTS.keys()].sort((a, b) => a - b).map(elev => ({ elev }));
 
 function hrtfPath(baseUrl, elev, az) {
   const azStr = String(az).padStart(3, '0');
