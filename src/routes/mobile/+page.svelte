@@ -6,37 +6,33 @@
 
   // Update to match your actual filenames in static/audio/
   const DEMOS = [
-    { label: 'Sound of footsteps', file: 'footsteps.mp3' },
-    { label: "Morgan Freeman's voice", file: 'freeman.mp3' },
-    { label: 'Hallelujah', file: 'hallelujah.mp3' },
-    { label: "Don't Worry", file: "don'tworry.mp3" },
+    { label: 'Sound of footsteps',     file: 'footsteps.mp3'  },
+    { label: "Morgan Freeman's voice", file: 'freeman.mp3'    },
+    { label: 'Hallelujah',             file: 'hallelujah.mp3' },
+    { label: "Don't Worry",            file: 'dontworry.mp3'  },
   ];
 
   let canvas;
   let scene, vis, engine;
 
-  let playing     = false;
-  let loading     = false;
-  let error       = '';
-  let activeDemo  = null;
-  let trackName   = '';
-  let currentTime = 0;
-  let duration    = 0;
+  let playing     = $state(false);
+  let loading     = $state(false);
+  let error       = $state('');
+  let activeDemo  = $state(null);
+  let trackName   = $state('');
+  let currentTime = $state(0);
+  let duration    = $state(0);
+  let azimuth     = $state(0);
+  let elevation   = $state(0);
 
-  let azimuth   = 0;
-  let elevation = 0;
+  let inputMode   = $state('gyro');
+  let gyroGranted = $state(false);
+  let gyroAvail   = $state(false);
 
-  // Input mode: 'gyro' | 'touch'
-  let inputMode   = 'gyro';
-  let gyroGranted = false;   // iOS permission granted
-  let gyroAvail   = false;   // DeviceOrientationEvent available
-
-  // Gyroscope smoothing state
   let smoothAz    = 0;
   let smoothEl    = 0;
-  let alphaOffset = null;    // capture initial heading so "forward" = azimuth 0
+  let alphaOffset = null;
 
-  // Touch drag state
   let touching = false;
   let lastTX = 0, lastTY = 0;
 
@@ -56,11 +52,9 @@
 
     scene.start();
 
-    // Check gyroscope availability
     gyroAvail = typeof DeviceOrientationEvent !== 'undefined';
 
-    // On Android, events fire without permission — start listening immediately.
-    // On iOS, we wait for the user to tap "Enable Gyroscope" first.
+    // Android fires without permission — start immediately.
     if (gyroAvail && typeof DeviceOrientationEvent.requestPermission !== 'function') {
       window.addEventListener('deviceorientation', onOrientation);
       gyroGranted = true;
@@ -74,7 +68,7 @@
   });
 
   // -------------------------------------------------------------------------
-  // Gyroscope input
+  // Gyroscope
   // -------------------------------------------------------------------------
 
   async function requestGyro() {
@@ -88,28 +82,20 @@
         error = 'Gyroscope permission denied. Using touch drag instead.';
         inputMode = 'touch';
       }
-    } catch (e) {
+    } catch {
       error = 'Gyroscope not available on this device.';
       inputMode = 'touch';
     }
   }
 
   function onOrientation(e) {
-    if (inputMode !== 'gyro') return;
-    if (e.alpha === null) return; // sensor not ready
+    if (inputMode !== 'gyro' || e.alpha === null) return;
 
-    // Capture initial heading so the user's current direction becomes azimuth 0.
     if (alphaOffset === null) alphaOffset = e.alpha;
 
-    // Compute relative azimuth (wraps 0–360).
     const rawAz = ((e.alpha - alphaOffset) % 360 + 360) % 360;
-
-    // Map beta (pitch) to elevation.
-    // Phone upright portrait = beta ≈ 90 → elevation 0.
-    // Tilting top toward user raises elevation.
     const rawEl = Math.max(-40, Math.min(90, -(e.beta - 90)));
 
-    // Smooth with a 1-pole LPF (matches distance.cpp approach).
     const SMOOTH = 0.12;
     let diff = rawAz - smoothAz;
     if (diff >  180) diff -= 360;
@@ -119,17 +105,14 @@
 
     azimuth   = smoothAz;
     elevation = smoothEl;
-
     engine.setPosition(smoothAz, smoothEl);
     vis.setPosition(smoothAz, smoothEl);
   }
 
-  function resetHeading() {
-    alphaOffset = null; // next gyro event re-captures "forward"
-  }
+  function resetHeading() { alphaOffset = null; }
 
   // -------------------------------------------------------------------------
-  // Touch drag input
+  // Touch drag
   // -------------------------------------------------------------------------
 
   function onTouchStart(e) {
@@ -151,7 +134,6 @@
 
     azimuth   = ((azimuth + dx * 0.4) % 360 + 360) % 360;
     elevation = Math.max(-40, Math.min(90, elevation - dy * 0.25));
-
     engine.setPosition(azimuth, elevation);
     vis.setPosition(azimuth, elevation);
   }
@@ -160,16 +142,14 @@
 
   function setInputMode(mode) {
     inputMode = mode;
-    if (mode === 'gyro' && !gyroGranted) {
-      // iOS: need to request permission
-      if (typeof DeviceOrientationEvent.requestPermission === 'function') {
-        requestGyro();
-      }
+    if (mode === 'gyro' && !gyroGranted &&
+        typeof DeviceOrientationEvent?.requestPermission === 'function') {
+      requestGyro();
     }
   }
 
   // -------------------------------------------------------------------------
-  // Audio controls
+  // Audio
   // -------------------------------------------------------------------------
 
   async function selectDemo(demo) {
@@ -179,7 +159,7 @@
     try {
       await engine.loadDemo(demo.file);
       await engine.play();
-    } catch (e) {
+    } catch {
       error = `Could not load "${demo.label}".`;
       activeDemo = null;
     }
@@ -195,18 +175,15 @@
     try {
       await engine.loadFile(file);
       await engine.play();
-    } catch (e) {
+    } catch {
       error = 'Could not decode that file.';
     }
     loading = false;
   }
 
   async function togglePlayPause() {
-    if (engine.isPlaying) {
-      engine.pause();
-    } else {
-      await engine.play();
-    }
+    if (engine.isPlaying) engine.pause();
+    else await engine.play();
   }
 
   // -------------------------------------------------------------------------
@@ -231,61 +208,47 @@
 </script>
 
 <main
-  on:touchstart={onTouchStart}
-  on:touchmove|passive={false}
-  on:touchmove={onTouchMove}
-  on:touchend={onTouchEnd}
+  ontouchstart={onTouchStart}
+  ontouchmove={onTouchMove}
+  ontouchend={onTouchEnd}
 >
-  <canvas bind:this={canvas} />
+  <canvas bind:this={canvas}></canvas>
 
-  <!-- Title -->
   <header>
     <span class="wordmark">around</span>
   </header>
 
-  <!-- Input mode toggle -->
   <div class="mode-toggle">
     <button
       class:active={inputMode === 'gyro'}
-      on:click={() => setInputMode('gyro')}
+      onclick={() => setInputMode('gyro')}
       disabled={!gyroAvail}
     >
       gyro
     </button>
     <button
       class:active={inputMode === 'touch'}
-      on:click={() => setInputMode('touch')}
+      onclick={() => setInputMode('touch')}
     >
       drag
     </button>
   </div>
 
-  <!-- Gyro hint -->
   {#if inputMode === 'gyro' && gyroGranted}
     <div class="gyro-hint">move your phone · sound follows</div>
+    <button class="reset-btn" onclick={resetHeading}>⊹ reset</button>
   {:else if inputMode === 'gyro' && !gyroGranted && gyroAvail}
-    <button class="enable-gyro" on:click={requestGyro}>
-      enable gyroscope
-    </button>
+    <button class="enable-gyro" onclick={requestGyro}>enable gyroscope</button>
   {:else if inputMode === 'touch'}
     <div class="gyro-hint">drag to move the sound</div>
   {/if}
 
-  <!-- Reset heading button (gyro mode only) -->
-  {#if inputMode === 'gyro' && gyroGranted}
-    <button class="reset-btn" on:click={resetHeading} title="Reset forward direction">
-      ⊹ reset
-    </button>
-  {/if}
-
-  <!-- Spatial readout -->
   <div class="readout">
     <span>{Math.round(azimuth)}°</span>
     <span class="sep">·</span>
     <span>{Math.round(elevation)}°</span>
   </div>
 
-  <!-- Bottom controls -->
   <footer>
     {#if error}
       <p class="error">{error}</p>
@@ -295,11 +258,10 @@
       <p class="track-name">{trackName}</p>
     {/if}
 
-    <!-- Seek bar (touch-friendly) -->
     <div
       class="seek-bar"
-      on:touchstart={onSeekTouch}
-      on:touchmove={onSeekTouch}
+      ontouchstart={onSeekTouch}
+      ontouchmove={onSeekTouch}
       role="slider"
       aria-label="Seek"
       aria-valuemin="0"
@@ -307,8 +269,8 @@
       aria-valuenow={currentTime}
       tabindex="0"
     >
-      <div class="seek-fill" style="width: {duration ? (currentTime / duration) * 100 : 0}%" />
-      <div class="seek-thumb" style="left: {duration ? (currentTime / duration) * 100 : 0}%" />
+      <div class="seek-fill" style="width: {duration ? (currentTime / duration) * 100 : 0}%"></div>
+      <div class="seek-thumb" style="left: {duration ? (currentTime / duration) * 100 : 0}%"></div>
     </div>
 
     <div class="time-row">
@@ -316,13 +278,12 @@
       <span>{formatTime(duration)}</span>
     </div>
 
-    <!-- Demo buttons (scrollable row) -->
     <div class="demos">
       {#each DEMOS as demo}
         <button
           class="demo-btn"
           class:active={activeDemo === demo.file}
-          on:click={() => selectDemo(demo)}
+          onclick={() => selectDemo(demo)}
           disabled={loading}
         >
           {demo.label}
@@ -330,15 +291,14 @@
       {/each}
     </div>
 
-    <!-- Playback row -->
     <div class="actions">
-      <button class="play-btn" on:click={togglePlayPause} disabled={loading || !duration}>
+      <button class="play-btn" onclick={togglePlayPause} disabled={loading || !duration}>
         {playing ? '⏸' : '▶'}
       </button>
 
       <label class="pill-btn">
         ↑ Upload
-        <input type="file" accept="audio/*" on:change={handleFileUpload} hidden />
+        <input type="file" accept="audio/*" onchange={handleFileUpload} hidden />
       </label>
 
       {#if loading}
@@ -373,7 +333,6 @@
     display: block;
   }
 
-  /* Header */
   header {
     position: fixed;
     top: env(safe-area-inset-top, 20px);
@@ -393,7 +352,6 @@
     text-transform: lowercase;
   }
 
-  /* Input mode toggle */
   .mode-toggle {
     position: fixed;
     top: env(safe-area-inset-top, 20px);
@@ -422,12 +380,8 @@
     background: rgba(60,90,200,0.1);
   }
 
-  .mode-toggle button:disabled {
-    opacity: 0.25;
-    cursor: not-allowed;
-  }
+  .mode-toggle button:disabled { opacity: 0.25; cursor: not-allowed; }
 
-  /* Gyro hint / enable button */
   .gyro-hint {
     position: fixed;
     top: 72px;
@@ -456,7 +410,6 @@
     z-index: 10;
   }
 
-  /* Reset heading */
   .reset-btn {
     position: fixed;
     top: 64px;
@@ -475,7 +428,6 @@
 
   .reset-btn:hover { border-color: #3355aa; color: #88aaff; }
 
-  /* Spatial readout */
   .readout {
     position: fixed;
     top: 64px;
@@ -491,7 +443,6 @@
 
   .sep { color: #1a2a4a; }
 
-  /* Footer */
   footer {
     position: fixed;
     bottom: 0;
@@ -514,12 +465,11 @@
     text-align: center;
   }
 
-  /* Seek bar — taller for touch */
   .seek-bar {
     position: relative;
     width: 100%;
     max-width: 480px;
-    height: 20px; /* tall touch target */
+    height: 20px;
     display: flex;
     align-items: center;
     cursor: pointer;
@@ -548,8 +498,7 @@
     position: absolute;
     top: 50%;
     transform: translate(-50%, -50%);
-    width: 14px;
-    height: 14px;
+    width: 14px; height: 14px;
     border-radius: 50%;
     background: #88aaff;
     pointer-events: none;
@@ -566,7 +515,6 @@
     color: #334466;
   }
 
-  /* Demo buttons — horizontal scroll on small screens */
   .demos {
     display: flex;
     gap: 8px;
@@ -596,16 +544,10 @@
   .demo-btn.active   { border-color: #5577cc; color: #aabbff; background: rgba(80,100,200,0.1); }
   .demo-btn:disabled { opacity: 0.4; }
 
-  .actions {
-    display: flex;
-    align-items: center;
-    gap: 14px;
-  }
+  .actions { display: flex; align-items: center; gap: 14px; }
 
-  /* Larger play button for mobile */
   .play-btn {
-    width: 52px;
-    height: 52px;
+    width: 52px; height: 52px;
     border-radius: 50%;
     border: 1px solid #3355aa;
     background: rgba(40,60,160,0.2);

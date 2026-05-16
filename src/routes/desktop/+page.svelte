@@ -1,39 +1,35 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
-  import { Scene }        from '$lib/three/scene.js';
-  import { SphereVis }    from '$lib/three/sphere-vis.js';
+  import { Scene }         from '$lib/three/scene.js';
+  import { SphereVis }     from '$lib/three/sphere-vis.js';
   import { SpatialEngine } from '$lib/audio/engine.js';
 
   // Update these to match your actual filenames in static/audio/
   const DEMOS = [
-    { label: 'Sound of footsteps, file: 'footsteps.mp3' },
-    { label: 'Morgan Freeman's voice', file: 'freeman.mp3' },
-    { label: 'Hallelujah by Jeff Buckley', file: 'hallelujah.mp3' },
-    { label: 'Don't Worry by Bobby McFerrin', file: "don'tworry.mp3"}
+    { label: 'Sound of footsteps',      file: 'footsteps.mp3'  },
+    { label: "Morgan Freeman's voice",  file: 'freeman.mp3'    },
+    { label: 'Hallelujah',              file: 'hallelujah.mp3' },
+    { label: "Don't Worry",             file: "dontworry.mp3"  },
   ];
 
   let canvas;
   let scene, vis, engine;
 
-  let playing     = false;
-  let loading     = false;
-  let error       = '';
-  let activeDemo  = null;
-  let urlInput    = '';
-  let showUrl     = false;
-  let trackName   = '';
-  let currentTime = 0;
-  let duration    = 0;
+  let playing     = $state(false);
+  let loading     = $state(false);
+  let error       = $state('');
+  let activeDemo  = $state(null);
+  let urlInput    = $state('');
+  let showUrl     = $state(false);
+  let trackName   = $state('');
+  let currentTime = $state(0);
+  let duration    = $state(0);
+  let azimuth     = $state(0);
+  let elevation   = $state(0);
 
-  let azimuth   = 0;
-  let elevation = 0;
-
-  // Mouse drag state
-  let dragging = false;
+  let dragging     = $state(false);
+  let seekDragging = $state(false);
   let lastX = 0, lastY = 0;
-
-  // Seek bar drag state
-  let seekDragging = false;
 
   onMount(() => {
     scene  = new Scene(canvas);
@@ -43,7 +39,6 @@
     scene.onFrame((delta, elapsed) => {
       vis.setAmplitude(engine.getAmplitude());
       vis.update(delta, elapsed);
-      // Sync player state from engine each frame
       playing     = engine.isPlaying;
       currentTime = engine.currentTime;
       duration    = engine.duration;
@@ -126,28 +121,20 @@
     return `${m}:${sec}`;
   }
 
-  function onSeekClick(e) {
+  function seekTo(e) {
     const bar = e.currentTarget;
-    const pct = (e.clientX - bar.getBoundingClientRect().left) / bar.clientWidth;
+    const pct = Math.max(0, Math.min(1,
+      (e.clientX - bar.getBoundingClientRect().left) / bar.clientWidth
+    ));
     engine.seek(pct * duration);
   }
 
-  function onSeekMouseDown(e) {
-    seekDragging = true;
-    onSeekClick(e);
-  }
-
-  function onSeekMouseMove(e) {
-    if (!seekDragging) return;
-    const bar = e.currentTarget;
-    const pct = Math.max(0, Math.min(1, (e.clientX - bar.getBoundingClientRect().left) / bar.clientWidth));
-    engine.seek(pct * duration);
-  }
-
-  function onSeekMouseUp() { seekDragging = false; }
+  function onSeekMouseDown(e) { seekDragging = true; seekTo(e); }
+  function onSeekMouseMove(e) { if (seekDragging) seekTo(e); }
+  function onSeekMouseUp()    { seekDragging = false; }
 
   // -------------------------------------------------------------------------
-  // Canvas mouse drag → azimuth / elevation
+  // Canvas drag → azimuth / elevation
   // -------------------------------------------------------------------------
 
   function onMouseDown(e) {
@@ -170,50 +157,46 @@
     vis.setPosition(azimuth, elevation);
   }
 
-  function onMouseUp()    { dragging = false; }
-  function onMouseLeave() { dragging = false; }
+  function onMouseUp() {
+    dragging     = false;
+    seekDragging = false;
+  }
 </script>
 
-<svelte:window on:mouseup={onMouseUp} on:mouseup={onSeekMouseUp} />
+<svelte:window onmouseup={onMouseUp} />
 
 <main>
   <canvas
     bind:this={canvas}
-    on:mousedown={onMouseDown}
-    on:mousemove={onMouseMove}
-    on:mouseleave={onMouseLeave}
+    onmousedown={onMouseDown}
+    onmousemove={onMouseMove}
+    onmouseleave={() => dragging = false}
     class:dragging
   />
 
-  <!-- Title -->
   <header>
     <span class="wordmark">around</span>
     <span class="hint">drag to move · headphones recommended</span>
   </header>
 
-  <!-- Spatial readout -->
   <div class="readout">
     <span>az <strong>{Math.round(azimuth)}°</strong></span>
     <span>el <strong>{Math.round(elevation)}°</strong></span>
   </div>
 
-  <!-- Controls panel -->
   <footer>
     {#if error}
       <p class="error">{error}</p>
     {/if}
 
-    <!-- Track name -->
     {#if trackName}
       <p class="track-name">{trackName}</p>
     {/if}
 
-    <!-- Seek bar -->
     <div
       class="seek-bar"
-      on:mousedown={onSeekMouseDown}
-      on:mousemove={onSeekMouseMove}
-      on:mouseup={onSeekMouseUp}
+      onmousedown={onSeekMouseDown}
+      onmousemove={onSeekMouseMove}
       role="slider"
       aria-label="Seek"
       aria-valuemin="0"
@@ -221,8 +204,8 @@
       aria-valuenow={currentTime}
       tabindex="0"
     >
-      <div class="seek-fill" style="width: {duration ? (currentTime / duration) * 100 : 0}%" />
-      <div class="seek-thumb" style="left: {duration ? (currentTime / duration) * 100 : 0}%" />
+      <div class="seek-fill" style="width: {duration ? (currentTime / duration) * 100 : 0}%"></div>
+      <div class="seek-thumb" style="left: {duration ? (currentTime / duration) * 100 : 0}%"></div>
     </div>
 
     <div class="time-row">
@@ -230,13 +213,12 @@
       <span>{formatTime(duration)}</span>
     </div>
 
-    <!-- Demo track selector -->
     <div class="demos">
       {#each DEMOS as demo}
         <button
           class="demo-btn"
           class:active={activeDemo === demo.file}
-          on:click={() => selectDemo(demo)}
+          onclick={() => selectDemo(demo)}
           disabled={loading}
         >
           {demo.label}
@@ -244,18 +226,17 @@
       {/each}
     </div>
 
-    <!-- Playback actions -->
     <div class="actions">
-      <button class="play-btn" on:click={togglePlayPause} disabled={loading || !duration}>
+      <button class="play-btn" onclick={togglePlayPause} disabled={loading || !duration}>
         {playing ? '⏸' : '▶'}
       </button>
 
-      <label class="pill-btn" title="Upload audio file">
+      <label class="pill-btn">
         ↑ Upload
-        <input type="file" accept="audio/*" on:change={handleFileUpload} hidden />
+        <input type="file" accept="audio/*" onchange={handleFileUpload} hidden />
       </label>
 
-      <button class="pill-btn" on:click={() => showUrl = !showUrl}>
+      <button class="pill-btn" onclick={() => showUrl = !showUrl}>
         ⊕ URL
       </button>
 
@@ -271,9 +252,9 @@
           type="url"
           placeholder="https://example.com/track.mp3"
           bind:value={urlInput}
-          on:keydown={e => e.key === 'Enter' && handleUrl()}
+          onkeydown={e => e.key === 'Enter' && handleUrl()}
         />
-        <button class="url-go" on:click={handleUrl}>Go</button>
+        <button class="url-go" onclick={handleUrl}>Go</button>
       </div>
     {/if}
   </footer>
@@ -288,10 +269,7 @@
     color: #c8d8ff;
   }
 
-  main {
-    position: fixed;
-    inset: 0;
-  }
+  main { position: fixed; inset: 0; }
 
   canvas {
     position: fixed;
@@ -305,7 +283,6 @@
 
   canvas.dragging { cursor: grabbing; }
 
-  /* Header */
   header {
     position: fixed;
     top: 28px;
@@ -332,7 +309,6 @@
     text-transform: lowercase;
   }
 
-  /* Spatial readout */
   .readout {
     position: fixed;
     top: 28px;
@@ -348,12 +324,10 @@
 
   .readout strong { color: #8899cc; font-weight: 500; }
 
-  /* Footer */
   footer {
     position: fixed;
     bottom: 0;
-    left: 0;
-    right: 0;
+    left: 0; right: 0;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -363,7 +337,6 @@
     z-index: 10;
   }
 
-  /* Track name */
   .track-name {
     margin: 0;
     font-size: 0.78rem;
@@ -372,7 +345,6 @@
     text-transform: lowercase;
   }
 
-  /* Seek bar */
   .seek-bar {
     position: relative;
     width: 100%;
@@ -390,25 +362,19 @@
     background: #3355aa;
     border-radius: 2px;
     pointer-events: none;
-    transition: width 0.1s linear;
   }
 
   .seek-thumb {
     position: absolute;
     top: 50%;
     transform: translate(-50%, -50%);
-    width: 10px;
-    height: 10px;
+    width: 10px; height: 10px;
     border-radius: 50%;
     background: #88aaff;
     pointer-events: none;
-    transition: left 0.1s linear;
     box-shadow: 0 0 6px rgba(136,170,255,0.6);
   }
 
-  .seek-bar:hover .seek-thumb { transform: translate(-50%, -50%) scale(1.3); }
-
-  /* Time */
   .time-row {
     display: flex;
     justify-content: space-between;
@@ -419,11 +385,7 @@
     color: #334466;
   }
 
-  /* Demo buttons */
-  .demos {
-    display: flex;
-    gap: 8px;
-  }
+  .demos { display: flex; gap: 8px; }
 
   .demo-btn {
     background: transparent;
@@ -441,29 +403,23 @@
   .demo-btn.active   { border-color: #5577cc; color: #aabbff; background: rgba(80,100,200,0.1); }
   .demo-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
-  /* Actions row */
-  .actions {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-  }
+  .actions { display: flex; align-items: center; gap: 12px; }
 
   .play-btn {
-    width: 42px;
-    height: 42px;
+    width: 42px; height: 42px;
     border-radius: 50%;
     border: 1px solid #3355aa;
     background: rgba(40,60,160,0.2);
     color: #aabbff;
     font-size: 1rem;
     cursor: pointer;
-    transition: background 0.2s, border-color 0.2s;
     display: flex;
     align-items: center;
     justify-content: center;
+    transition: background 0.2s;
   }
 
-  .play-btn:hover    { background: rgba(60,90,200,0.35); border-color: #5577cc; }
+  .play-btn:hover    { background: rgba(60,90,200,0.35); }
   .play-btn:disabled { opacity: 0.3; cursor: not-allowed; }
 
   .pill-btn {
@@ -480,13 +436,7 @@
 
   .pill-btn:hover { border-color: #3355aa; color: #88aaff; }
 
-  /* URL input */
-  .url-row {
-    display: flex;
-    gap: 8px;
-    width: 100%;
-    max-width: 520px;
-  }
+  .url-row { display: flex; gap: 8px; width: 100%; max-width: 520px; }
 
   .url-input {
     flex: 1;
@@ -500,7 +450,7 @@
     transition: border-color 0.2s;
   }
 
-  .url-input:focus       { border-color: #4466aa; }
+  .url-input:focus        { border-color: #4466aa; }
   .url-input::placeholder { color: #2a3a6a; }
 
   .url-go {

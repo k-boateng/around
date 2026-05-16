@@ -2,10 +2,9 @@
   import { goto } from '$app/navigation';
   import { onMount } from 'svelte';
 
-  let visible = false;
+  let visible = $state(false);
 
   onMount(() => {
-    // Fade in after a brief pause
     setTimeout(() => (visible = true), 120);
   });
 
@@ -22,18 +21,17 @@
 </script>
 
 <main class:visible>
-  <!-- Ambient background rings (CSS only) -->
   <div class="rings" aria-hidden="true">
-    <div class="ring ring-1" />
-    <div class="ring ring-2" />
-    <div class="ring ring-3" />
+    <div class="ring ring-1"></div>
+    <div class="ring ring-2"></div>
+    <div class="ring ring-3"></div>
   </div>
 
   <div class="content">
     <h1 class="wordmark">around</h1>
     <p class="sub">spatial audio · headphones recommended</p>
 
-    <button class="enter-btn" on:click={enter}>
+    <button class="enter-btn" onclick={enter}>
       enter
     </button>
 
@@ -65,7 +63,6 @@
 
   main.visible { opacity: 1; }
 
-  /* Pulsing ambient rings */
   .rings {
     position: fixed;
     inset: 0;
@@ -82,16 +79,15 @@
     animation: expand 6s ease-out infinite;
   }
 
-  .ring-1 { width: 300px; height: 300px; animation-delay: 0s;   }
-  .ring-2 { width: 500px; height: 500px; animation-delay: 2s;   }
-  .ring-3 { width: 700px; height: 700px; animation-delay: 4s;   }
+  .ring-1 { width: 300px; height: 300px; animation-delay: 0s; }
+  .ring-2 { width: 500px; height: 500px; animation-delay: 2s; }
+  .ring-3 { width: 700px; height: 700px; animation-delay: 4s; }
 
   @keyframes expand {
     0%   { transform: scale(0.85); opacity: 0.6; }
     100% { transform: scale(1.15); opacity: 0;   }
   }
 
-  /* Content */
   .content {
     display: flex;
     flex-direction: column;
