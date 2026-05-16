@@ -41,6 +41,10 @@
     vis    = new SphereVis(scene);
     engine = new SpatialEngine();
 
+    // Pre-fetch HRTF files in the background so they're cached before the
+    // user taps a track. No AudioContext needed for plain fetch().
+    engine.prefetchHRTF();
+
     scene.onFrame((delta, elapsed) => {
       vis.setAmplitude(engine.getAmplitude());
       vis.update(delta, elapsed);

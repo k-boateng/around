@@ -83,6 +83,12 @@ export class SpatialEngine {
     this._ready = true;
   }
 
+  // Kick off HRTF network fetches immediately (no AudioContext / user gesture needed).
+  // Call this from onMount so files are cached by the time the user taps play.
+  async prefetchHRTF() {
+    await this._loader.prefetch(HRTF_URL);
+  }
+
   // Audio source loading
 
   // Load one of the bundled demo tracks from static/audio/.

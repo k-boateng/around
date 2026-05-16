@@ -41,32 +41,59 @@ function hrtfPath(baseUrl, elev, az) {
 export class HRTFLoader {
   constructor() {
     // `${elev},${az}` → { left: Float32Array, right: Float32Array }
-    this._store = new Map();
+    this._store    = new Map();
+    this._rawCache = new Map(); // `${elev},${az}` → ArrayBuffer (prefetched)
     this._irLength = 0;
-    this.loaded = false;
+    this.loaded    = false;
   }
 
-  // Fetch and decode all HRTF WAV files in parallel.
-  // audioCtx must be an AudioContext (not OfflineAudioContext).
+  // Start fetching raw WAV bytes in the background — no AudioContext needed.
+  // Call this from onMount so the network work happens while the user is
+  // looking at the UI, before they ever tap a track.
+  async prefetch(baseUrl = '/hrtf') {
+    const tasks = [];
+    for (const { elev } of ELEVATIONS) {
+      for (const az of AZ_LISTS.get(elev)) {
+        const key = `${elev},${az}`;
+        if (this._rawCache.has(key)) continue; // already fetched
+        tasks.push(
+          fetch(hrtfPath(baseUrl, elev, az))
+            .then(r => r.ok ? r.arrayBuffer() : null)
+            .then(buf => { if (buf) this._rawCache.set(key, buf); })
+            .catch(() => {}) // don't let one bad file break everything
+        );
+      }
+    }
+    await Promise.all(tasks);
+  }
+
+  // Decode all WAV files into Float32Arrays using the AudioContext.
+  // If prefetch() already ran, this is just a decode pass (no network waits).
   async load(audioCtx, baseUrl = '/hrtf') {
     const tasks = [];
 
     for (const { elev } of ELEVATIONS) {
       for (const az of AZ_LISTS.get(elev)) {
+        const key = `${elev},${az}`;
         const url = hrtfPath(baseUrl, elev, az);
-        tasks.push(
-          fetch(url)
-            .then(r => {
+
+        // Use cached raw bytes if available, otherwise fetch now.
+        const getBuf = this._rawCache.has(key)
+          ? Promise.resolve(this._rawCache.get(key))
+          : fetch(url).then(r => {
               if (!r.ok) throw new Error(`HRTF not found: ${url}`);
               return r.arrayBuffer();
-            })
-            .then(buf => audioCtx.decodeAudioData(buf))
+            });
+
+        tasks.push(
+          getBuf
+            .then(buf => audioCtx.decodeAudioData(buf.slice(0))) // slice → safe copy
             .then(decoded => {
               const ir = {
                 left:  decoded.getChannelData(0).slice(),
                 right: decoded.getChannelData(1).slice(),
               };
-              this._store.set(`${elev},${az}`, ir);
+              this._store.set(key, ir);
               if (decoded.length > this._irLength) this._irLength = decoded.length;
             })
         );
@@ -74,6 +101,7 @@ export class HRTFLoader {
     }
 
     await Promise.all(tasks);
+    this._rawCache.clear(); // free the raw bytes, we have the decoded data now
     this.loaded = true;
   }
 
