@@ -181,7 +181,7 @@
   ></canvas>
 
   <header>
-    <span class="wordmark">around</span>
+    <a class="wordmark" href="/">around</a>
     <span class="hint">drag to move · headphones recommended</span>
   </header>
 
@@ -317,7 +317,12 @@
     letter-spacing: -0.02em;
     color: #e8e6e0;
     text-transform: lowercase;
+    text-decoration: none;
+    pointer-events: auto;
+    transition: opacity 0.2s;
   }
+
+  .wordmark:hover { opacity: 0.6; }
 
   .hint {
     font-size: 11px;

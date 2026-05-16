@@ -20,13 +20,13 @@
   }
 </script>
 
-<main class:visible>
-  <div class="rings" aria-hidden="true">
-    <div class="ring ring-1"></div>
-    <div class="ring ring-2"></div>
-    <div class="ring ring-3"></div>
-  </div>
+<div class="rings" aria-hidden="true">
+  <div class="ring ring-1"></div>
+  <div class="ring ring-2"></div>
+  <div class="ring ring-3"></div>
+</div>
 
+<main class:visible>
   <div class="content">
     <div class="wordmark-block">
       <h1 class="wordmark">around</h1>
@@ -37,9 +37,22 @@
 
     <button class="enter-btn" onclick={enter}>enter</button>
 
-    <div class="how">
-      <p>Put on headphones. Move your phone around you.</p>
-      <p>The sound follows — rendered in 3D using your ear's geometry.</p>
+    <div class="about">
+      <div class="divider"></div>
+      <p>
+        around renders sound in three dimensions using your ears' natural geometry.
+        each ear receives a slightly different signal — delayed, filtered, reflected —
+        and your brain resolves the difference into a position in space.
+      </p>
+      <p>
+        built on the mit kemar dataset and a custom binaural dsp engine.
+      </p>
+      <a
+        class="github-link"
+        href="https://github.com/k-boateng/spatial-audio"
+        target="_blank"
+        rel="noopener noreferrer"
+      >source on github →</a>
     </div>
   </div>
 </main>
@@ -47,25 +60,14 @@
 <style>
   :global(body) {
     margin: 0;
-    overflow: hidden;
     background: #0a0a0a;
     font-family: 'Inter', system-ui, sans-serif;
     font-weight: 300;
     color: #e8e6e0;
+    overflow-x: hidden;
   }
 
-  main {
-    position: fixed;
-    inset: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    opacity: 0;
-    transition: opacity 0.8s ease;
-  }
-
-  main.visible { opacity: 1; }
-
+  /* Rings stay fixed regardless of scroll */
   .rings {
     position: fixed;
     inset: 0;
@@ -73,6 +75,7 @@
     align-items: center;
     justify-content: center;
     pointer-events: none;
+    z-index: 0;
   }
 
   .ring {
@@ -91,14 +94,29 @@
     100% { transform: scale(1.12); opacity: 0;   }
   }
 
+  /* Main scrolls; rings stay behind */
+  main {
+    position: relative;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity 0.8s ease;
+    z-index: 1;
+  }
+
+  main.visible { opacity: 1; }
+
   .content {
     display: flex;
     flex-direction: column;
     align-items: center;
     gap: 20px;
-    z-index: 10;
     text-align: center;
-    padding: 0 32px;
+    padding: 80px 32px;
+    max-width: 480px;
+    width: 100%;
   }
 
   .wordmark-block {
@@ -136,7 +154,7 @@
   }
 
   .enter-btn {
-    margin-top: 16px;
+    margin-top: 12px;
     background: transparent;
     border: 1px solid #2a2926;
     color: #e8e6e0;
@@ -156,18 +174,42 @@
     background: rgba(255, 255, 255, 0.03);
   }
 
-  .how {
-    margin-top: 12px;
+  /* About section */
+  .about {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    align-items: center;
+    gap: 14px;
+    margin-top: 16px;
+    width: 100%;
   }
 
-  .how p {
-    font-size: 0.65rem;
-    letter-spacing: 0.06em;
+  .divider {
+    width: 40px;
+    height: 1px;
+    background: #1a1917;
+  }
+
+  .about p {
+    font-size: 0.68rem;
+    font-weight: 300;
+    letter-spacing: 0.04em;
     color: #3a3835;
     margin: 0;
-    line-height: 1.7;
+    line-height: 1.9;
+    text-transform: lowercase;
   }
+
+  .github-link {
+    font-size: 0.62rem;
+    font-weight: 300;
+    letter-spacing: 0.1em;
+    color: #2a2926;
+    text-decoration: none;
+    text-transform: lowercase;
+    transition: color 0.2s;
+    margin-top: 4px;
+  }
+
+  .github-link:hover { color: #6b6862; }
 </style>

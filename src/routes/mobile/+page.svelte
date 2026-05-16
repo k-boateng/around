@@ -233,7 +233,7 @@
       {/if}
     </div>
 
-    <span class="wordmark">around</span>
+    <a class="wordmark" href="/">around</a>
 
     <div class="mode-toggle">
       <button
@@ -377,7 +377,11 @@
     letter-spacing: -0.02em;
     color: #e8e6e0;
     text-transform: lowercase;
+    text-decoration: none;
+    transition: opacity 0.2s;
   }
+
+  .wordmark:hover { opacity: 0.6; }
 
   .mode-toggle {
     display: flex;
