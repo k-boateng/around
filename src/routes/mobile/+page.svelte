@@ -223,7 +223,18 @@
   <canvas bind:this={canvas}></canvas>
 
   <header>
+    <div class="header-left">
+      {#if inputMode === 'gyro' && gyroGranted}
+        <button class="reset-btn" onclick={resetHeading}>reset</button>
+      {:else if inputMode === 'gyro' && !gyroGranted && gyroAvail}
+        <button class="enable-gyro" onclick={requestGyro}>enable gyroscope</button>
+      {:else}
+        <span></span>
+      {/if}
+    </div>
+
     <span class="wordmark">around</span>
+
     <div class="mode-toggle">
       <button
         class:active={inputMode === 'gyro'}
@@ -236,12 +247,6 @@
       >drag</button>
     </div>
   </header>
-
-  {#if inputMode === 'gyro' && gyroGranted}
-    <button class="reset-btn" onclick={resetHeading}>reset</button>
-  {:else if inputMode === 'gyro' && !gyroGranted && gyroAvail}
-    <button class="enable-gyro" onclick={requestGyro}>enable gyroscope</button>
-  {/if}
 
   {#if trackTitle}
     <div class="now-playing">
@@ -295,7 +300,7 @@
 
     <div class="actions">
       <button class="play-btn" onclick={togglePlayPause} disabled={loading || !duration}>
-        {playing ? '⏸' : '▶'}
+        {playing ? 'pause' : 'play'}
       </button>
 
       <label class="pill-btn">
@@ -344,7 +349,7 @@
     display: block;
   }
 
-  /* Header */
+  /* Header — three-column: left controls | wordmark | mode toggle */
   header {
     position: fixed;
     top: env(safe-area-inset-top, 20px);
@@ -352,12 +357,18 @@
     padding: 20px 20px 0;
     display: flex;
     justify-content: space-between;
-    align-items: flex-start;
+    align-items: center;
     z-index: 10;
     pointer-events: none;
   }
 
   header > * { pointer-events: auto; }
+
+  .header-left {
+    min-width: 60px;
+    display: flex;
+    align-items: center;
+  }
 
   .wordmark {
     font-family: 'Fraunces', Georgia, serif;
@@ -390,11 +401,8 @@
   .mode-toggle button.active   { border-color: #3a3935; color: #e8e6e0; }
   .mode-toggle button:disabled { opacity: 0.2; cursor: not-allowed; }
 
-  /* Gyro controls */
+  /* Gyro controls — inline in header */
   .reset-btn {
-    position: fixed;
-    top: calc(env(safe-area-inset-top, 20px) + 68px);
-    left: 20px;
     background: transparent;
     border: 1px solid #1a1917;
     color: #4a4843;
@@ -405,28 +413,22 @@
     font-weight: 400;
     letter-spacing: 0.08em;
     cursor: pointer;
-    z-index: 10;
     transition: border-color 0.2s, color 0.2s;
   }
 
   .reset-btn:hover { border-color: #3a3935; color: #e8e6e0; }
 
   .enable-gyro {
-    position: fixed;
-    top: calc(env(safe-area-inset-top, 20px) + 68px);
-    left: 50%;
-    transform: translateX(-50%);
     background: transparent;
     border: 1px solid #2a2926;
     color: #e8e6e0;
-    padding: 10px 24px;
+    padding: 5px 12px;
     border-radius: 999px;
     font-family: inherit;
-    font-size: 11px;
+    font-size: 10px;
     font-weight: 400;
     letter-spacing: 0.08em;
     cursor: pointer;
-    z-index: 10;
   }
 
   /* Now-playing — centred in viewport */
@@ -566,20 +568,22 @@
   .actions { display: flex; align-items: center; gap: 12px; }
 
   .play-btn {
-    width: 48px; height: 48px;
-    border-radius: 50%;
-    border: 1px solid #2a2926;
     background: transparent;
+    border: 1px solid #2a2926;
     color: #e8e6e0;
-    font-size: 1.1rem;
+    font-family: inherit;
+    font-size: 11px;
+    font-weight: 400;
+    letter-spacing: 0.08em;
+    text-transform: lowercase;
+    padding: 11px 22px;
+    border-radius: 999px;
     cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
     transition: border-color 0.2s;
   }
 
-  .play-btn:disabled { opacity: 0.3; }
+  .play-btn:hover:not(:disabled) { border-color: #e8e6e0; }
+  .play-btn:disabled { opacity: 0.3; cursor: not-allowed; }
 
   .pill-btn {
     background: transparent;
