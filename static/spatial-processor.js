@@ -257,7 +257,7 @@ class SpatialProcessor extends AudioWorkletProcessor {
 
     this._reverb   = new Reverb();
     this._distance = new DistanceProcessor();
-    this._wetMix   = 0.2;
+    this._wetMix   = 0.35;
 
     // Messages from the main thread:
     //   { type: 'ir',       left: ArrayBuffer, right: ArrayBuffer, length: number }

@@ -1,12 +1,11 @@
 import * as THREE from 'three';
 
-const SPHERE_RADIUS = 2;
-const ORB_RADIUS    = 0.07;
-const TRAIL_LENGTH  = 50;
-const PULSE_POOL    = 8;
+const SPHERE_RADIUS = 11;
+const SOURCE_RADIUS = 38; // source dot orbits outside the sphere
 
-// Spherical → Cartesian  (azimuth 0° = front/+Z, 90° = right/+X, elevation 90° = top/+Y)
-export function azElToVec3(azimuth, elevation, r = SPHERE_RADIUS) {
+// Spherical → Cartesian
+// azimuth 0° = front (+Z), 90° = right (+X), elevation 90° = top (+Y)
+export function azElToVec3(azimuth, elevation, r = SOURCE_RADIUS) {
   const az = (azimuth  * Math.PI) / 180;
   const el = (elevation * Math.PI) / 180;
   return new THREE.Vector3(
@@ -17,184 +16,120 @@ export function azElToVec3(azimuth, elevation, r = SPHERE_RADIUS) {
 }
 
 export class SphereVis {
-  constructor(scene) {
-    this._scene    = scene;   // Scene instance from scene.js
-    this._azimuth  = 0;
-    this._elevation = 0;
-    this._amplitude = 0;
-    this._smoothAmp = 0;
+  constructor(scene, { sourceRadius = SOURCE_RADIUS } = {}) {
+    this._scene        = scene;
+    this._sourceRadius = sourceRadius;
+    this._azimuth      = 0;
+    this._elevation    = 0;
+    this._amplitude    = 0;
+    this._smoothAmp    = 0;
 
-    // --- Wireframe sphere ---
-    const sphereGeo = new THREE.SphereGeometry(SPHERE_RADIUS, 36, 18);
-    const wireGeo   = new THREE.WireframeGeometry(sphereGeo);
-    const wireMat   = new THREE.LineBasicMaterial({
-      color:       0x1a3a7a,
+    // --- Solid sphere (the listener's space) ---
+    const sphereGeo = new THREE.SphereGeometry(SPHERE_RADIUS, 64, 48);
+    const sphereMat = new THREE.MeshStandardMaterial({
+      color:       0x5a5854,
+      roughness:   0.85,
+      metalness:   0,
       transparent: true,
-      opacity:     0.28,
-      depthWrite:  false,
+      opacity:     0.65,
     });
-    this._wire = new THREE.LineSegments(wireGeo, wireMat);
-    scene.scene.add(this._wire);
-    sphereGeo.dispose(); // wireGeo owns the data now
+    this._sphere = new THREE.Mesh(sphereGeo, sphereMat);
+    scene.scene.add(this._sphere);
 
-    // --- Orb ---
-    const orbGeo = new THREE.SphereGeometry(ORB_RADIUS, 20, 20);
-    const orbMat = new THREE.MeshStandardMaterial({
-      color:             0xffffff,
-      emissive:          new THREE.Color(0x6699ff),
-      emissiveIntensity: 3,
-      roughness:         0.05,
-      metalness:         0,
-    });
-    this._orb = new THREE.Mesh(orbGeo, orbMat);
-    scene.scene.add(this._orb);
-
-    // Halo ring around the orb (always faces camera via billboard logic in update)
-    const haloGeo = new THREE.RingGeometry(ORB_RADIUS * 1.8, ORB_RADIUS * 2.6, 48);
-    const haloMat = new THREE.MeshBasicMaterial({
-      color:       0x88aaff,
+    // --- Faint guide ring (billboard, always faces camera) ---
+    const ringInner = SPHERE_RADIUS * 1.18;
+    const ringOuter = SPHERE_RADIUS * 1.19;
+    const guideGeo  = new THREE.RingGeometry(ringInner, ringOuter, 128);
+    const guideMat  = new THREE.MeshBasicMaterial({
+      color:       0xe8e6e0,
       transparent: true,
-      opacity:     0.35,
+      opacity:     0.12,
       side:        THREE.DoubleSide,
       depthWrite:  false,
     });
-    this._halo = new THREE.Mesh(haloGeo, haloMat);
-    this._orb.add(this._halo); // child of orb so it moves with it
+    this._guideRing = new THREE.Mesh(guideGeo, guideMat);
+    scene.scene.add(this._guideRing);
 
-    // --- Motion trail ---
-    this._trailPos  = new Float32Array(TRAIL_LENGTH * 3);
-    const trailGeo  = new THREE.BufferGeometry();
-    trailGeo.setAttribute('position', new THREE.BufferAttribute(this._trailPos, 3));
-    trailGeo.setDrawRange(0, 0);
-    const trailMat = new THREE.LineBasicMaterial({
-      color:       0x4466cc,
+    // --- Source dot (small bright sphere at the audio source position) ---
+    const dotGeo = new THREE.SphereGeometry(0.55, 16, 16);
+    const dotMat = new THREE.MeshBasicMaterial({ color: 0xe8e6e0 });
+    this._sourceDot = new THREE.Mesh(dotGeo, dotMat);
+    scene.scene.add(this._sourceDot);
+
+    // --- Source ring (thin faint ring around the dot, billboard) ---
+    const srcRingGeo = new THREE.RingGeometry(1.3, 1.45, 32);
+    const srcRingMat = new THREE.MeshBasicMaterial({
+      color:       0xe8e6e0,
       transparent: true,
-      opacity:     0.45,
+      opacity:     0.18,
+      side:        THREE.DoubleSide,
       depthWrite:  false,
     });
-    this._trail        = new THREE.Line(trailGeo, trailMat);
-    this._trailHistory = []; // THREE.Vector3[]
-    scene.scene.add(this._trail);
+    this._sourceRing = new THREE.Mesh(srcRingGeo, srcRingMat);
+    scene.scene.add(this._sourceRing);
 
-    //Pulse ring pool
-    // Rings expand outward from the orb on amplitude peaks.
-    this._pulsePool = Array.from({ length: PULSE_POOL }, () => {
-      const geo  = new THREE.TorusGeometry(0.1, 0.006, 6, 56);
-      const mat  = new THREE.MeshBasicMaterial({
-        color:       0x88aaff,
-        transparent: true,
-        opacity:     0,
-        depthWrite:  false,
-      });
-      const mesh = new THREE.Mesh(geo, mat);
-      mesh.visible = false;
-      scene.scene.add(mesh);
-      return { mesh, active: false, scale: 1, opacity: 0 };
-    });
-    this._lastPulseTime = 0;
-
-    this._updateOrbPosition();
+    this._updateSourcePosition();
   }
 
-  // Called by the Svelte page when gyroscope / mouse changes the source position.
   setPosition(azimuth, elevation) {
     this._azimuth   = azimuth;
     this._elevation = elevation;
-    this._updateOrbPosition();
+    this._updateSourcePosition();
   }
 
-  // Called each frame with a 0–1 amplitude value from the AnalyserNode.
   setAmplitude(amp) {
     this._amplitude = amp;
   }
 
-  // Register this as a scene.onFrame() callback.
   update(delta, elapsed) {
-    // Smooth amplitude with a 1-pole filter.
-    this._smoothAmp += (this._amplitude - this._smoothAmp) * 0.18;
+    // Gentle idle pulse so the scene feels alive even before audio starts.
+    const idle   = (Math.sin(elapsed * 0.8) * 0.5 + 0.5) * 0.15;
+    const target = Math.max(this._amplitude, idle);
+    this._smoothAmp += (target - this._smoothAmp) * 0.08;
 
-    // Pulse the orb emissive and point light with audio amplitude.
-    this._orb.material.emissiveIntensity = 3 + this._smoothAmp * 5;
-    this._scene.orbLight.intensity       = 2 + this._smoothAmp * 8;
+    const amp = this._smoothAmp;
 
-    // Billboard the halo to always face the camera.
-    this._halo.quaternion.copy(this._scene.camera.quaternion);
+    // Source position and normalised direction from centre.
+    const src    = azElToVec3(this._azimuth, this._elevation, this._sourceRadius);
+    const srcDir = src.clone().normalize();
 
-    // Slowly drift the wireframe sphere for a living feel.
-    this._wire.rotation.y += delta * 0.035;
-    this._wire.rotation.x += delta * 0.008;
+    // Move source dot + its ring.
+    this._sourceDot.position.copy(src);
+    this._sourceRing.position.copy(src);
+    this._sourceRing.lookAt(this._scene.camera.position);
 
-    // Update motion trail.
-    const p = this._orb.position;
-    if (
-      this._trailHistory.length === 0 ||
-      this._trailHistory[this._trailHistory.length - 1].distanceTo(p) > 0.01
-    ) {
-      this._trailHistory.push(p.clone());
-      if (this._trailHistory.length > TRAIL_LENGTH) this._trailHistory.shift();
-    }
-    for (let i = 0; i < this._trailHistory.length; i++) {
-      const h = this._trailHistory[i];
-      this._trailPos[i * 3]     = h.x;
-      this._trailPos[i * 3 + 1] = h.y;
-      this._trailPos[i * 3 + 2] = h.z;
-    }
-    this._trail.geometry.setDrawRange(0, this._trailHistory.length);
-    this._trail.geometry.attributes.position.needsUpdate = true;
+    // Guide ring: billboard + gentle scale with pulse.
+    this._guideRing.lookAt(this._scene.camera.position);
+    this._guideRing.scale.setScalar(1.0 + amp * 0.025);
 
-    // Spawn a pulse ring on amplitude peaks, rate-limited to avoid spam.
-    if (this._smoothAmp > 0.25 && elapsed - this._lastPulseTime > 0.15) {
-      this._spawnPulse(p);
-      this._lastPulseTime = elapsed;
-    }
+    // Sphere: lean toward source, stretch along that axis, pulse with amplitude.
+    const pulseScale    = 1.0 + amp * 0.08;
+    const leanAmount    = amp * 0.6 + 0.2;
+    const stretchFactor = 0.04 + amp * 0.06;
 
-    // Animate active pulses: expand + fade.
-    for (const slot of this._pulsePool) {
-      if (!slot.active) continue;
-      slot.scale   += delta * 3;
-      slot.opacity -= delta * 2;
-      slot.mesh.scale.setScalar(slot.scale);
-      slot.mesh.material.opacity = Math.max(0, slot.opacity);
-      if (slot.opacity <= 0) {
-        slot.active      = false;
-        slot.mesh.visible = false;
-      }
-    }
+    // Orient sphere so its local X axis points toward the source, then stretch X.
+    const xAxis = new THREE.Vector3(1, 0, 0);
+    const quat  = new THREE.Quaternion().setFromUnitVectors(xAxis, srcDir);
+    this._sphere.quaternion.copy(quat);
+    this._sphere.position.copy(srcDir.clone().multiplyScalar(leanAmount));
+    this._sphere.scale.set(
+      pulseScale * (1 + stretchFactor),
+      pulseScale * (1 - stretchFactor * 0.5),
+      pulseScale * (1 - stretchFactor * 0.5)
+    );
   }
 
-  _updateOrbPosition() {
-    const v = azElToVec3(this._azimuth, this._elevation);
-    this._orb.position.copy(v);
-    this._scene.orbLight.position.copy(v);
-  }
-
-  _spawnPulse(position) {
-    const slot = this._pulsePool.find(p => !p.active);
-    if (!slot) return;
-
-    slot.active  = true;
-    slot.scale   = 1;
-    slot.opacity = 0.65;
-
-    slot.mesh.position.copy(position);
-    // Orient ring to face outward from sphere centre.
-    slot.mesh.lookAt(0, 0, 0);
-    slot.mesh.rotateX(Math.PI / 2);
-    slot.mesh.scale.setScalar(1);
-    slot.mesh.material.opacity = 0.65;
-    slot.mesh.visible = true;
+  _updateSourcePosition() {
+    const src = azElToVec3(this._azimuth, this._elevation, this._sourceRadius);
+    this._sourceDot.position.copy(src);
+    this._sourceRing.position.copy(src);
   }
 
   destroy() {
-    [this._wire, this._orb, this._trail].forEach(obj => {
+    for (const obj of [this._sphere, this._guideRing, this._sourceDot, this._sourceRing]) {
       obj.geometry.dispose();
       obj.material.dispose();
-    });
-    this._halo.geometry.dispose();
-    this._halo.material.dispose();
-    for (const { mesh } of this._pulsePool) {
-      mesh.geometry.dispose();
-      mesh.material.dispose();
+      this._scene.scene.remove(obj);
     }
   }
 }

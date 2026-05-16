@@ -10,37 +10,28 @@ export class Scene {
     });
     this._renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this._renderer.setSize(canvas.clientWidth, canvas.clientHeight);
-    this._renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this._renderer.toneMappingExposure = 1.2;
 
     // Scene
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0x04060f); // deep navy-black
-    this.scene.fog = new THREE.FogExp2(0x04060f, 0.08);
+    this.scene.background = new THREE.Color(0x0a0a0a);
 
-    // Camera
+    // Camera — slight offset from centre gives the sphere a 3D-readable angle.
     this.camera = new THREE.PerspectiveCamera(
-      60,
+      40,
       canvas.clientWidth / canvas.clientHeight,
       0.1,
-      100
+      200
     );
-    this.camera.position.set(0, 0, 4.5);
+    this.camera.position.set(6, 4, 95);
+    this.camera.lookAt(0, 0, 0);
 
     // Lighting
-    // Dim ambient so the scene reads as dark space.
-    const ambient = new THREE.AmbientLight(0x0a0f2a, 1.5);
+    const key = new THREE.DirectionalLight(0xffffff, 1.0);
+    key.position.set(-15, 25, 30);
+    this.scene.add(key);
+
+    const ambient = new THREE.AmbientLight(0xffffff, 0.06);
     this.scene.add(ambient);
-
-    // Warm fill from above — gives the sphere subtle depth.
-    const fill = new THREE.DirectionalLight(0x3344aa, 0.4);
-    fill.position.set(0, 5, 3);
-    this.scene.add(fill);
-
-    // Orb point light — attached to the audio source orb position.
-    // Intensity driven by audio amplitude in sphere-vis.js.
-    this.orbLight = new THREE.PointLight(0x88aaff, 2, 8, 2);
-    this.scene.add(this.orbLight);
 
     // Animation loop
     this._callbacks = [];

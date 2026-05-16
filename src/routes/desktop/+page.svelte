@@ -4,31 +4,31 @@
   import { SphereVis }     from '$lib/three/sphere-vis.js';
   import { SpatialEngine } from '$lib/audio/engine.js';
 
-  // Update these to match your actual filenames in static/audio/
   const DEMOS = [
-    { label: 'Sound of footsteps',      file: 'footsteps.mp3'  },
-    { label: "Morgan Freeman's voice",  file: 'freeman.mp3'    },
-    { label: 'Hallelujah',              file: 'hallelujah.mp3' },
-    { label: "Don't Worry",             file: "dontworry.mp3"  },
+    { label: 'Footsteps',      file: 'footsteps.mp3',  artist: 'Sound design'   },
+    { label: 'Morgan Freeman', file: 'freeman.mp3',    artist: 'Morgan Freeman'  },
+    { label: 'Hallelujah',     file: 'hallelujah.mp3', artist: 'Jeff Buckley'   },
+    { label: "Don't Worry",    file: 'dontworry.mp3',  artist: 'Bobby McFerrin' },
   ];
 
   let canvas;
   let scene, vis, engine;
 
-  let playing     = $state(false);
-  let loading     = $state(false);
-  let error       = $state('');
-  let activeDemo  = $state(null);
-  let urlInput    = $state('');
-  let showUrl     = $state(false);
-  let trackName   = $state('');
-  let currentTime = $state(0);
-  let duration    = $state(0);
-  let azimuth     = $state(0);
-  let elevation   = $state(0);
+  let playing      = $state(false);
+  let loading      = $state(false);
+  let error        = $state('');
+  let activeDemo   = $state(null);
+  let trackTitle   = $state('');
+  let trackArtist  = $state('');
+  let currentTime  = $state(0);
+  let duration     = $state(0);
+  let azimuth      = $state(0);
+  let elevation    = $state(0);
+  let urlInput     = $state('');
+  let showUrl      = $state(false);
 
-  let dragging     = $state(false);
-  let seekDragging = $state(false);
+  let dragging     = false;
+  let seekDragging = false;
   let lastX = 0, lastY = 0;
 
   onMount(() => {
@@ -36,8 +36,6 @@
     vis    = new SphereVis(scene);
     engine = new SpatialEngine();
 
-    // Pre-fetch HRTF files in the background so they're cached before the
-    // user taps a track. No AudioContext needed for plain fetch().
     engine.prefetchHRTF();
 
     scene.onFrame((delta, elapsed) => {
@@ -46,7 +44,6 @@
       playing     = engine.isPlaying;
       currentTime = engine.currentTime;
       duration    = engine.duration;
-      trackName   = engine.trackName;
     });
 
     scene.start();
@@ -58,19 +55,23 @@
   });
 
   // -------------------------------------------------------------------------
-  // Audio controls
+  // Audio
   // -------------------------------------------------------------------------
 
   async function selectDemo(demo) {
     error = '';
     loading = true;
     activeDemo = demo.file;
+    trackTitle  = demo.label;
+    trackArtist = demo.artist;
     try {
       await engine.loadDemo(demo.file);
       await engine.play();
     } catch (e) {
-      error = `Could not load "${demo.label}". Make sure ${demo.file} is in static/audio/.`;
+      error = `${demo.label}: ${e?.message ?? e}`;
       activeDemo = null;
+      trackTitle = '';
+      trackArtist = '';
     }
     loading = false;
   }
@@ -81,11 +82,14 @@
     error = '';
     loading = true;
     activeDemo = null;
+    trackTitle  = file.name.replace(/\.[^.]+$/, '');
+    trackArtist = '';
     try {
       await engine.loadFile(file);
       await engine.play();
     } catch (e) {
-      error = 'Could not decode that file. Make sure it is a valid MP3 or WAV.';
+      error = `Upload failed: ${e?.message ?? e}`;
+      trackTitle = '';
     }
     loading = false;
   }
@@ -95,32 +99,32 @@
     error = '';
     loading = true;
     activeDemo = null;
+    trackTitle  = urlInput.trim().split('/').pop().replace(/\.[^.]+$/, '') || 'stream';
+    trackArtist = '';
     try {
       await engine.loadUrl(urlInput.trim());
       await engine.play();
       showUrl  = false;
       urlInput = '';
     } catch (e) {
-      error = 'Could not fetch that URL. The server must allow CORS.';
+      error = `URL failed: ${e?.message ?? e}`;
+      trackTitle = '';
     }
     loading = false;
   }
 
   async function togglePlayPause() {
-    if (engine.isPlaying) {
-      engine.pause();
-    } else {
-      await engine.play();
-    }
+    if (engine.isPlaying) engine.pause();
+    else await engine.play();
   }
 
   // -------------------------------------------------------------------------
-  // Seek bar
+  // Seek
   // -------------------------------------------------------------------------
 
   function formatTime(s) {
     if (!isFinite(s)) return '0:00';
-    const m = Math.floor(s / 60);
+    const m   = Math.floor(s / 60);
     const sec = String(Math.floor(s % 60)).padStart(2, '0');
     return `${m}:${sec}`;
   }
@@ -153,10 +157,8 @@
     const dy = e.clientY - lastY;
     lastX = e.clientX;
     lastY = e.clientY;
-
     azimuth   = ((azimuth + dx * 0.4) % 360 + 360) % 360;
     elevation = Math.max(-40, Math.min(90, elevation - dy * 0.25));
-
     engine.setPosition(azimuth, elevation);
     vis.setPosition(azimuth, elevation);
   }
@@ -176,7 +178,7 @@
     onmousemove={onMouseMove}
     onmouseleave={() => dragging = false}
     class:dragging
-  />
+  ></canvas>
 
   <header>
     <span class="wordmark">around</span>
@@ -184,17 +186,23 @@
   </header>
 
   <div class="readout">
-    <span>az <strong>{Math.round(azimuth)}°</strong></span>
-    <span>el <strong>{Math.round(elevation)}°</strong></span>
+    <span>{Math.round(azimuth)}°</span>
+    <span class="sep">·</span>
+    <span>{Math.round(elevation)}°</span>
   </div>
+
+  {#if trackTitle}
+    <div class="now-playing">
+      <div class="track-title">{trackTitle}</div>
+      {#if trackArtist}
+        <div class="track-artist">{trackArtist}</div>
+      {/if}
+    </div>
+  {/if}
 
   <footer>
     {#if error}
       <p class="error">{error}</p>
-    {/if}
-
-    {#if trackName}
-      <p class="track-name">{trackName}</p>
     {/if}
 
     <div
@@ -208,6 +216,7 @@
       aria-valuenow={currentTime}
       tabindex="0"
     >
+      <div class="seek-track"></div>
       <div class="seek-fill" style="width: {duration ? (currentTime / duration) * 100 : 0}%"></div>
       <div class="seek-thumb" style="left: {duration ? (currentTime / duration) * 100 : 0}%"></div>
     </div>
@@ -220,7 +229,7 @@
     <div class="demos">
       {#each DEMOS as demo}
         <button
-          class="demo-btn"
+          class="demo-chip"
           class:active={activeDemo === demo.file}
           onclick={() => selectDemo(demo)}
           disabled={loading}
@@ -236,16 +245,16 @@
       </button>
 
       <label class="pill-btn">
-        ↑ Upload
+        Upload
         <input type="file" accept="audio/*" onchange={handleFileUpload} hidden />
       </label>
 
       <button class="pill-btn" onclick={() => showUrl = !showUrl}>
-        ⊕ URL
+        URL
       </button>
 
       {#if loading}
-        <span class="loading">loading…</span>
+        <span class="loading">loading</span>
       {/if}
     </div>
 
@@ -268,9 +277,11 @@
   :global(body) {
     margin: 0;
     overflow: hidden;
-    background: #04060f;
-    font-family: 'SF Pro Display', system-ui, sans-serif;
-    color: #c8d8ff;
+    background: #0a0a0a;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-weight: 300;
+    color: #e8e6e0;
+    -webkit-tap-highlight-color: transparent;
   }
 
   main { position: fixed; inset: 0; }
@@ -290,43 +301,74 @@
   header {
     position: fixed;
     top: 28px;
-    left: 36px;
+    left: 0; right: 0;
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    align-items: center;
+    gap: 6px;
     pointer-events: none;
     z-index: 10;
   }
 
   .wordmark {
-    font-size: 1.5rem;
+    font-family: 'Fraunces', Georgia, serif;
+    font-size: 28px;
     font-weight: 300;
-    letter-spacing: 0.18em;
-    color: #dde8ff;
+    letter-spacing: -0.02em;
+    color: #e8e6e0;
     text-transform: lowercase;
   }
 
   .hint {
-    font-size: 0.7rem;
+    font-size: 11px;
+    font-weight: 300;
     letter-spacing: 0.1em;
-    color: #4455aa;
     text-transform: lowercase;
+    color: #6b6862;
   }
 
   .readout {
     position: fixed;
     top: 28px;
-    right: 36px;
+    right: 28px;
     display: flex;
-    gap: 18px;
-    font-size: 0.72rem;
-    letter-spacing: 0.08em;
-    color: #445588;
+    gap: 4px;
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    color: #3a3835;
     pointer-events: none;
     z-index: 10;
   }
 
-  .readout strong { color: #8899cc; font-weight: 500; }
+  .sep { color: #2a2926; }
+
+  /* Now-playing — centred in the viewport */
+  .now-playing {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    text-align: center;
+    pointer-events: none;
+    z-index: 10;
+  }
+
+  .track-title {
+    font-family: 'Fraunces', Georgia, serif;
+    font-size: 22px;
+    font-weight: 300;
+    color: #d4d2cc;
+    letter-spacing: -0.01em;
+  }
+
+  .track-artist {
+    font-size: 11px;
+    font-weight: 300;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: #6b6862;
+    margin-top: 8px;
+  }
 
   footer {
     position: fixed;
@@ -335,36 +377,39 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 10px;
-    padding: 16px 32px 28px;
-    background: linear-gradient(to top, rgba(4,6,15,0.97) 60%, transparent);
+    gap: 14px;
+    padding: 20px 32px 32px;
+    background: linear-gradient(to top, rgba(10,10,10,0.97) 55%, transparent);
     z-index: 10;
   }
 
-  .track-name {
-    margin: 0;
-    font-size: 0.78rem;
-    letter-spacing: 0.12em;
-    color: #8899cc;
-    text-transform: lowercase;
-  }
-
+  /* Seek bar */
   .seek-bar {
     position: relative;
     width: 100%;
     max-width: 520px;
-    height: 3px;
-    background: #0e1530;
-    border-radius: 2px;
+    height: 20px;
+    display: flex;
+    align-items: center;
     cursor: pointer;
     user-select: none;
   }
 
+  .seek-track {
+    position: absolute;
+    left: 0; right: 0;
+    height: 1px;
+    background: #2a2926;
+    border-radius: 1px;
+  }
+
   .seek-fill {
     position: absolute;
-    top: 0; left: 0; bottom: 0;
-    background: #3355aa;
-    border-radius: 2px;
+    top: 50%; left: 0;
+    transform: translateY(-50%);
+    height: 1px;
+    background: #e8e6e0;
+    border-radius: 1px;
     pointer-events: none;
   }
 
@@ -372,11 +417,10 @@
     position: absolute;
     top: 50%;
     transform: translate(-50%, -50%);
-    width: 10px; height: 10px;
+    width: 8px; height: 8px;
     border-radius: 50%;
-    background: #88aaff;
+    background: #e8e6e0;
     pointer-events: none;
-    box-shadow: 0 0 6px rgba(136,170,255,0.6);
   }
 
   .time-row {
@@ -384,108 +428,127 @@
     justify-content: space-between;
     width: 100%;
     max-width: 520px;
-    font-size: 0.65rem;
+    font-size: 10px;
     letter-spacing: 0.06em;
-    color: #334466;
+    color: #4a4843;
   }
 
-  .demos { display: flex; gap: 8px; }
+  /* Demo chips */
+  .demos {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: center;
+    max-width: 520px;
+  }
 
-  .demo-btn {
+  .demo-chip {
     background: transparent;
-    border: 1px solid #1e2d5a;
-    color: #4466aa;
-    padding: 5px 14px;
-    border-radius: 20px;
-    font-size: 0.75rem;
-    letter-spacing: 0.08em;
+    border: 1px solid #1a1917;
+    color: #6b6862;
+    font-family: inherit;
+    font-size: 11px;
+    font-weight: 400;
+    letter-spacing: 0.06em;
+    padding: 7px 14px;
+    border-radius: 999px;
     cursor: pointer;
-    transition: border-color 0.2s, color 0.2s;
+    transition: color 0.2s, border-color 0.2s;
+    white-space: nowrap;
   }
 
-  .demo-btn:hover    { border-color: #3355aa; color: #88aaff; }
-  .demo-btn.active   { border-color: #5577cc; color: #aabbff; background: rgba(80,100,200,0.1); }
-  .demo-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .demo-chip:hover    { color: #d4d2cc; border-color: #3a3935; }
+  .demo-chip.active   { color: #e8e6e0; border-color: #3a3935; }
+  .demo-chip:disabled { opacity: 0.35; cursor: not-allowed; }
 
+  /* Actions */
   .actions { display: flex; align-items: center; gap: 12px; }
 
   .play-btn {
-    width: 42px; height: 42px;
+    width: 44px; height: 44px;
     border-radius: 50%;
-    border: 1px solid #3355aa;
-    background: rgba(40,60,160,0.2);
-    color: #aabbff;
+    border: 1px solid #2a2926;
+    background: transparent;
+    color: #e8e6e0;
     font-size: 1rem;
     cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: background 0.2s;
+    transition: border-color 0.2s, background 0.2s;
   }
 
-  .play-btn:hover    { background: rgba(60,90,200,0.35); }
+  .play-btn:hover    { border-color: #e8e6e0; background: rgba(255,255,255,0.03); }
   .play-btn:disabled { opacity: 0.3; cursor: not-allowed; }
 
   .pill-btn {
     background: transparent;
-    border: 1px solid #1e2d5a;
-    color: #4466aa;
-    padding: 6px 14px;
-    border-radius: 20px;
-    font-size: 0.75rem;
-    letter-spacing: 0.07em;
+    border: 1px solid #2a2926;
+    color: #6b6862;
+    font-family: inherit;
+    font-size: 11px;
+    font-weight: 400;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 10px 18px;
+    border-radius: 999px;
     cursor: pointer;
     transition: border-color 0.2s, color 0.2s;
   }
 
-  .pill-btn:hover { border-color: #3355aa; color: #88aaff; }
+  .pill-btn:hover { border-color: #e8e6e0; color: #e8e6e0; }
 
+  /* URL row */
   .url-row { display: flex; gap: 8px; width: 100%; max-width: 520px; }
 
   .url-input {
     flex: 1;
-    background: rgba(10,15,40,0.8);
-    border: 1px solid #1e2d5a;
+    background: rgba(10,10,10,0.9);
+    border: 1px solid #2a2926;
     border-radius: 8px;
-    color: #c8d8ff;
-    padding: 7px 12px;
-    font-size: 0.78rem;
+    color: #e8e6e0;
+    padding: 8px 12px;
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 300;
     outline: none;
     transition: border-color 0.2s;
   }
 
-  .url-input:focus        { border-color: #4466aa; }
-  .url-input::placeholder { color: #2a3a6a; }
+  .url-input:focus        { border-color: #6b6862; }
+  .url-input::placeholder { color: #3a3835; }
 
   .url-go {
-    background: rgba(40,60,160,0.3);
-    border: 1px solid #3355aa;
+    background: transparent;
+    border: 1px solid #2a2926;
     border-radius: 8px;
-    color: #aabbff;
-    padding: 7px 16px;
-    font-size: 0.78rem;
+    color: #e8e6e0;
+    padding: 8px 16px;
+    font-family: inherit;
+    font-size: 12px;
     cursor: pointer;
-    transition: background 0.2s;
+    transition: border-color 0.2s;
   }
 
-  .url-go:hover { background: rgba(60,90,200,0.45); }
+  .url-go:hover { border-color: #e8e6e0; }
 
   .loading {
-    font-size: 0.72rem;
-    letter-spacing: 0.08em;
-    color: #4455aa;
-    animation: pulse 1.2s ease-in-out infinite;
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    color: #4a4843;
+    animation: pulse 1.4s ease-in-out infinite;
   }
 
   .error {
-    font-size: 0.72rem;
-    color: #aa4455;
+    font-size: 11px;
+    color: #8b4a52;
     letter-spacing: 0.05em;
     margin: 0;
+    text-align: center;
   }
 
   @keyframes pulse {
-    0%, 100% { opacity: 0.4; }
-    50%       { opacity: 1; }
+    0%, 100% { opacity: 0.3; }
+    50%       { opacity: 1;   }
   }
 </style>

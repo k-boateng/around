@@ -28,17 +28,19 @@
   </div>
 
   <div class="content">
-    <h1 class="wordmark">around</h1>
-    <p class="sub">spatial audio · headphones recommended</p>
+    <div class="wordmark-block">
+      <h1 class="wordmark">around</h1>
+      <p class="byline">by Kwame Boateng</p>
+    </div>
 
-    <button class="enter-btn" onclick={enter}>
-      enter
-    </button>
+    <p class="tagline">spatial audio · headphones recommended</p>
 
-    <p class="footnote">
-      move the sound around you ·
-      powered by HRTF binaural rendering
-    </p>
+    <button class="enter-btn" onclick={enter}>enter</button>
+
+    <div class="how">
+      <p>Put on headphones. Move your phone around you.</p>
+      <p>The sound follows — rendered in 3D using your ear's geometry.</p>
+    </div>
   </div>
 </main>
 
@@ -46,9 +48,10 @@
   :global(body) {
     margin: 0;
     overflow: hidden;
-    background: #04060f;
-    font-family: 'SF Pro Display', system-ui, sans-serif;
-    color: #c8d8ff;
+    background: #0a0a0a;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-weight: 300;
+    color: #e8e6e0;
   }
 
   main {
@@ -75,71 +78,96 @@
   .ring {
     position: absolute;
     border-radius: 50%;
-    border: 1px solid rgba(80, 120, 255, 0.08);
-    animation: expand 6s ease-out infinite;
+    border: 1px solid rgba(232, 230, 224, 0.04);
+    animation: expand 7s ease-out infinite;
   }
 
   .ring-1 { width: 300px; height: 300px; animation-delay: 0s; }
-  .ring-2 { width: 500px; height: 500px; animation-delay: 2s; }
-  .ring-3 { width: 700px; height: 700px; animation-delay: 4s; }
+  .ring-2 { width: 520px; height: 520px; animation-delay: 2.3s; }
+  .ring-3 { width: 740px; height: 740px; animation-delay: 4.6s; }
 
   @keyframes expand {
-    0%   { transform: scale(0.85); opacity: 0.6; }
-    100% { transform: scale(1.15); opacity: 0;   }
+    0%   { transform: scale(0.88); opacity: 0.5; }
+    100% { transform: scale(1.12); opacity: 0;   }
   }
 
   .content {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 16px;
+    gap: 20px;
     z-index: 10;
     text-align: center;
-    padding: 0 24px;
+    padding: 0 32px;
+  }
+
+  .wordmark-block {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
   }
 
   .wordmark {
-    font-size: clamp(3rem, 12vw, 6rem);
-    font-weight: 200;
-    letter-spacing: 0.3em;
-    color: #dde8ff;
+    font-family: 'Fraunces', Georgia, serif;
+    font-size: clamp(3rem, 12vw, 5.5rem);
+    font-weight: 300;
+    letter-spacing: -0.02em;
+    color: #e8e6e0;
     margin: 0;
     text-transform: lowercase;
   }
 
-  .sub {
-    font-size: 0.75rem;
-    letter-spacing: 0.18em;
-    color: #2a3a6a;
+  .byline {
+    font-size: 0.7rem;
+    font-weight: 300;
+    letter-spacing: 0.12em;
+    color: #4a4843;
+    text-transform: lowercase;
+    margin: 0;
+  }
+
+  .tagline {
+    font-size: 0.7rem;
+    letter-spacing: 0.14em;
+    color: #6b6862;
     text-transform: lowercase;
     margin: 0;
   }
 
   .enter-btn {
-    margin-top: 24px;
+    margin-top: 16px;
     background: transparent;
-    border: 1px solid #2a3a7a;
-    color: #6688cc;
-    padding: 12px 48px;
-    border-radius: 32px;
-    font-size: 0.8rem;
-    letter-spacing: 0.22em;
+    border: 1px solid #2a2926;
+    color: #e8e6e0;
+    padding: 14px 48px;
+    border-radius: 999px;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 0.75rem;
+    font-weight: 400;
+    letter-spacing: 0.12em;
     text-transform: lowercase;
     cursor: pointer;
-    transition: border-color 0.3s, color 0.3s, box-shadow 0.3s;
+    transition: border-color 0.3s ease, background 0.3s ease;
   }
 
   .enter-btn:hover {
-    border-color: #5577cc;
-    color: #aabbff;
-    box-shadow: 0 0 24px rgba(80, 120, 255, 0.15);
+    border-color: #e8e6e0;
+    background: rgba(255, 255, 255, 0.03);
   }
 
-  .footnote {
-    margin-top: 8px;
-    font-size: 0.62rem;
-    letter-spacing: 0.1em;
-    color: #1a2440;
-    text-transform: lowercase;
+  .how {
+    margin-top: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .how p {
+    font-size: 0.65rem;
+    letter-spacing: 0.06em;
+    color: #3a3835;
+    margin: 0;
+    line-height: 1.7;
   }
 </style>
