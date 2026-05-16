@@ -28,6 +28,7 @@ export class SpatialEngine {
     this._trackName   = '';
     this._objectUrl   = null; // revoke previous blob URL on track change
     this._ready       = false;
+    this._lastIRSend  = 0;   // timestamp of last IR postMessage (ms)
   }
 
   // Must be called from a user-gesture handler (click/touch) to satisfy
@@ -210,6 +211,11 @@ export class SpatialEngine {
 
   _sendIR(azimuth, elevation) {
     if (!this._node || !this._loader.loaded) return;
+    // Throttle to ~30 updates/sec. The worklet crossfades over ~12 ms, so
+    // sending faster than that just restarts the fade before it finishes.
+    const now = performance.now();
+    if (now - this._lastIRSend < 33) return;
+    this._lastIRSend = now;
     const { left, right, length } = this._loader.interpolateForWorklet(azimuth, elevation);
     this._node.port.postMessage({ type: 'ir', left, right, length }, [left, right]);
   }

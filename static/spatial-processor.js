@@ -23,6 +23,11 @@ class OverlapAddConvolver {
     this._irFreq = this._fft.forward(padded);
   }
 
+  // Clear accumulated tail so a fresh crossfade target starts clean.
+  resetTail() {
+    this._tail.fill(0);
+  }
+
   process(input) {
     if (!this._irFreq) return new Float32Array(BLOCK);
 
@@ -232,12 +237,27 @@ class SpatialProcessor extends AudioWorkletProcessor {
   constructor() {
     super();
 
-    this._irLength  = 256; // updated when worklet receives first IR
-    this._convL     = new OverlapAddConvolver(this._irLength);
-    this._convR     = new OverlapAddConvolver(this._irLength);
-    this._reverb    = new Reverb();
-    this._distance  = new DistanceProcessor();
-    this._wetMix    = 0.2;
+    this._irLength = 256;
+
+    // "Current" pair — always running, produces the live output.
+    this._convL = new OverlapAddConvolver(this._irLength);
+    this._convR = new OverlapAddConvolver(this._irLength);
+
+    // "Next" pair — runs only during a crossfade, then gets promoted.
+    this._nextL = new OverlapAddConvolver(this._irLength);
+    this._nextR = new OverlapAddConvolver(this._irLength);
+
+    // Crossfade state.
+    // 512 samples ≈ 12 ms at 44100 Hz — long enough to hide the IR boundary,
+    // short enough that position lag is imperceptible.
+    this._crossfading    = false;
+    this._crossfadePos   = 0;
+    this._crossfadeLen   = 512;
+    this._hasIR          = false;
+
+    this._reverb   = new Reverb();
+    this._distance = new DistanceProcessor();
+    this._wetMix   = 0.2;
 
     // Messages from the main thread:
     //   { type: 'ir',       left: ArrayBuffer, right: ArrayBuffer, length: number }
@@ -247,8 +267,27 @@ class SpatialProcessor extends AudioWorkletProcessor {
       if (data.type === 'ir') {
         const left  = new Float32Array(data.left);
         const right = new Float32Array(data.right);
-        this._convL.setIR(left);
-        this._convR.setIR(right);
+
+        if (!this._hasIR) {
+          // First IR ever: apply directly with no crossfade.
+          this._convL.setIR(left);
+          this._convR.setIR(right);
+          this._hasIR = true;
+          return;
+        }
+
+        if (!this._crossfading) {
+          // Start a fresh crossfade: clear next-pair tails so they begin clean.
+          this._nextL.resetTail();
+          this._nextR.resetTail();
+          this._crossfadePos = 0;
+          this._crossfading  = true;
+        }
+        // (If already crossfading, just update the target IR. The fade continues
+        // from its current position — no restart, no extra click.)
+        this._nextL.setIR(left);
+        this._nextR.setIR(right);
+
       } else if (data.type === 'distance') {
         this._distance.setDistance(data.value);
       } else if (data.type === 'wetMix') {
@@ -258,39 +297,62 @@ class SpatialProcessor extends AudioWorkletProcessor {
   }
 
   process(inputs, outputs) {
-    const input  = inputs[0]?.[0];
-    const outL   = outputs[0][0];
-    const outR   = outputs[0][1];
+    const input = inputs[0]?.[0];
+    const outL  = outputs[0][0];
+    const outR  = outputs[0][1];
 
     if (!input || input.length === 0) return true;
 
-    //Distance attenuation + air absorption (mono).
+    // Distance attenuation + air absorption (mono).
     const distOut = new Float32Array(BLOCK);
     for (let i = 0; i < BLOCK; i++) {
       distOut[i] = this._distance.processSample(input[i]);
     }
 
-    //Reverb (wet signal, mono pre-spatialization).
+    // Reverb (wet signal, mono pre-spatialization).
     const reverbOut = new Float32Array(BLOCK);
     for (let i = 0; i < BLOCK; i++) {
       reverbOut[i] = this._reverb.processSample(distOut[i]);
     }
 
-    //Mix dry + wet before HRTF convolution.
+    // Mix dry + wet before HRTF convolution.
     const mixed = new Float32Array(BLOCK);
-    const wet   = this._wetMix;
-    const dry   = 1 - wet;
+    const wet = this._wetMix, dry = 1 - wet;
     for (let i = 0; i < BLOCK; i++) {
       mixed[i] = dry * distOut[i] + wet * reverbOut[i];
     }
 
-    //HRTF convolution (separate left and right ears).
+    // HRTF convolution — current pair always runs.
     const spatL = this._convL.process(mixed);
     const spatR = this._convR.process(mixed);
 
-    for (let i = 0; i < BLOCK; i++) {
-      outL[i] = spatL[i];
-      outR[i] = spatR[i];
+    if (this._crossfading) {
+      // Next pair also processes the same block so its tail stays in sync.
+      const nxtL = this._nextL.process(mixed);
+      const nxtR = this._nextR.process(mixed);
+
+      for (let i = 0; i < BLOCK; i++) {
+        // Linear ramp within this block — no per-sample branch.
+        const alpha = Math.min(1, (this._crossfadePos + i) / this._crossfadeLen);
+        const inv   = 1 - alpha;
+        outL[i] = inv * spatL[i] + alpha * nxtL[i];
+        outR[i] = inv * spatR[i] + alpha * nxtR[i];
+      }
+
+      this._crossfadePos += BLOCK;
+
+      if (this._crossfadePos >= this._crossfadeLen) {
+        // Promote: next becomes current, old current becomes the standby pair.
+        const tmpL = this._convL, tmpR = this._convR;
+        this._convL = this._nextL; this._convR = this._nextR;
+        this._nextL = tmpL;        this._nextR = tmpR;
+        this._crossfading = false;
+      }
+    } else {
+      for (let i = 0; i < BLOCK; i++) {
+        outL[i] = spatL[i];
+        outR[i] = spatR[i];
+      }
     }
 
     return true; // keep processor alive
